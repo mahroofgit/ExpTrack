@@ -10,14 +10,17 @@
      trips:    [{ id, name, createdAt }],
      expenses: [{ id, tripId, title, amount, currency, category, date,
                    notes, createdAt, updatedAt }],
-     activeTripId: 'all' | <tripId>
+     activeTripId: 'all' | 'none' | <tripId>
    }
+   'all'  -> dashboard view, shows a card per trip with its own total
+   'none' -> the view of expenses that aren't assigned to any trip
+   <id>   -> a single trip's expense list
    ========================================================================= */
 
 const STORAGE_KEY = "waylog.v1";
 
 const CURRENCIES = [
-  "USD", "EUR", "GBP", "INR", "JPY", "AUD", "CAD", "CHF",
+  "CAD", "USD", "EUR", "GBP", "INR", "JPY", "AUD", "CHF",
   "CNY", "SGD", "THB", "AED", "HKD", "NZD", "MXN", "IDR",
 ];
 
@@ -102,90 +105,180 @@ function showToast(msg) {
   showToast._t = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
+function isSearching() {
+  return filters.search.trim().length > 0;
+}
+
 /* ---------------------------- scoped data ---------------------------- */
 
-function getScopedExpenses() {
-  let list = state.expenses.filter((e) =>
-    state.activeTripId === "all" ? true : e.tripId === state.activeTripId
-  );
+/* Expenses belonging to the current trip/none/all scope, with NO other
+   filters applied — this is what the small corner total is based on, so
+   a trip's total doesn't change just because a category chip is active. */
+function scopeExpenses(scopeId) {
+  return state.expenses.filter((e) => {
+    if (scopeId === "all") return true;
+    if (scopeId === "none") return !e.tripId;
+    return e.tripId === scopeId;
+  });
+}
+
+/* Expenses for the currently open trip/none view, with the category
+   filter applied. Not used for "all" (that view shows trip cards). */
+function getExpensesForActiveScope() {
+  let list = scopeExpenses(state.activeTripId);
   if (filters.category !== "all") {
     list = list.filter((e) => e.category === filters.category);
   }
-  if (filters.search.trim()) {
-    const q = filters.search.trim().toLowerCase();
-    list = list.filter(
-      (e) =>
-        e.title.toLowerCase().includes(q) ||
-        (e.notes || "").toLowerCase().includes(q)
-    );
-  }
   return list.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
+}
+
+/* Search is global and ignores trip scope / category filter on purpose,
+   so you can always find a past expense no matter which trip it's in. */
+function getSearchResults() {
+  const q = filters.search.trim().toLowerCase();
+  return state.expenses
+    .filter((e) => e.title.toLowerCase().includes(q) || (e.notes || "").toLowerCase().includes(q))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
+}
+
+function totalsByCurrency(list) {
+  const totals = {};
+  list.forEach((e) => {
+    totals[e.currency] = (totals[e.currency] || 0) + Number(e.amount);
+  });
+  return totals;
+}
+
+function compactTotalsText(list) {
+  const totals = totalsByCurrency(list);
+  const codes = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
+  if (codes.length === 0) return "No expenses yet";
+  const parts = codes.slice(0, 2).map((c) => `${formatAmount(totals[c])} ${c}`);
+  if (codes.length > 2) parts.push(`+${codes.length - 2} more`);
+  return parts.join(" · ");
 }
 
 /* ---------------------------- rendering ---------------------------- */
 
 function render() {
   renderTripPill();
-  renderSummary();
-  renderCategoryChips();
-  renderList();
+  renderScopeBar();
+
+  const searching = isSearching();
+  const isAll = state.activeTripId === "all";
+
+  document.getElementById("categoryToolbar").style.display = !searching && !isAll ? "block" : "none";
+  document.getElementById("tripCardsWrap").style.display = !searching && isAll ? "flex" : "none";
+  document.getElementById("listWrap").style.display = searching || !isAll ? "block" : "none";
+
+  if (searching) {
+    renderExpenseRows(getSearchResults(), { showTrip: true, emptyMessage: "No expenses match your search." });
+  } else if (isAll) {
+    renderTripCards();
+  } else {
+    renderCategoryChips();
+    renderExpenseRows(getExpensesForActiveScope(), {
+      showTrip: false,
+      emptyMessage: state.expenses.length === 0
+        ? "No expenses yet. Tap the + button to log your first one."
+        : "Nothing matches this filter. Try clearing the category filter.",
+    });
+  }
+}
+
+function scopeName(scopeId) {
+  if (scopeId === "all") return "All trips";
+  if (scopeId === "none") return "No trip";
+  const t = tripById(scopeId);
+  return t ? t.name : "All trips";
 }
 
 function renderTripPill() {
-  const label = document.getElementById("tripPillLabel");
-  const summaryLabel = document.getElementById("summaryLabel");
-  if (state.activeTripId === "all") {
-    label.textContent = "All trips";
-    summaryLabel.textContent = "All trips";
-  } else {
-    const trip = tripById(state.activeTripId);
-    const name = trip ? trip.name : "All trips";
-    label.textContent = name;
-    summaryLabel.textContent = name;
-    if (!trip) state.activeTripId = "all";
+  document.getElementById("tripPillLabel").textContent = scopeName(state.activeTripId);
+  if (state.activeTripId !== "all" && state.activeTripId !== "none" && !tripById(state.activeTripId)) {
+    state.activeTripId = "all";
   }
 }
 
-function renderSummary() {
-  const scoped = getScopedExpenses();
-  const totalsByCurrency = {};
-  scoped.forEach((e) => {
-    totalsByCurrency[e.currency] = (totalsByCurrency[e.currency] || 0) + Number(e.amount);
-  });
-  const currencies = Object.keys(totalsByCurrency).sort(
-    (a, b) => totalsByCurrency[b] - totalsByCurrency[a]
-  );
-
-  const amountEl = document.getElementById("summaryAmount");
-  const codeEl = document.getElementById("summaryCode");
-  const metaEl = document.getElementById("summaryMeta");
-  const chipsEl = document.getElementById("summaryCurrencies");
-
-  if (currencies.length === 0) {
-    amountEl.textContent = "0.00";
-    codeEl.textContent = "—";
-  } else {
-    const top = currencies[0];
-    amountEl.textContent = formatAmount(totalsByCurrency[top]);
-    codeEl.textContent = top;
-  }
-
-  metaEl.textContent = `${scoped.length} expense${scoped.length === 1 ? "" : "s"}`;
-
-  chipsEl.innerHTML = "";
-  currencies.slice(1).forEach((cur) => {
-    const chip = document.createElement("span");
-    chip.className = "currency-chip";
-    chip.textContent = `${formatAmount(totalsByCurrency[cur])} ${cur}`;
-    chipsEl.appendChild(chip);
-  });
-  if (currencies.length === 0) {
-    const chip = document.createElement("span");
-    chip.className = "currency-chip";
-    chip.textContent = "No expenses yet";
-    chipsEl.appendChild(chip);
-  }
+function renderScopeBar() {
+  document.getElementById("scopeLabel").textContent = scopeName(state.activeTripId);
+  document.getElementById("backToAllBtn").style.display = state.activeTripId === "all" ? "none" : "inline-flex";
+  document.getElementById("scopeTotal").textContent = compactTotalsText(scopeExpenses(state.activeTripId));
 }
+
+document.getElementById("backToAllBtn").addEventListener("click", () => {
+  state.activeTripId = "all";
+  saveState();
+  render();
+});
+
+/* ---------------------------- trip cards (dashboard) ---------------------------- */
+
+function renderTripCards() {
+  const wrap = document.getElementById("tripCardsWrap");
+  wrap.innerHTML = "";
+
+  const cards = state.trips.map((t) => ({ id: t.id, name: t.name }));
+  const hasUnassigned = state.expenses.some((e) => !e.tripId);
+  if (hasUnassigned) cards.push({ id: "none", name: "No trip" });
+
+  if (cards.length === 0 && state.trips.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.innerHTML = `<div class="glyph">🧭</div><p>Create your first trip to start logging expenses.</p>`;
+    wrap.appendChild(empty);
+  }
+
+  cards.forEach((c) => {
+    const list = scopeExpenses(c.id);
+    const totals = totalsByCurrency(list);
+    const codes = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
+
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "trip-card";
+    card.innerHTML = `
+      <div class="trip-card-top">
+        <span class="trip-card-name"></span>
+        <span class="trip-card-count">${list.length} expense${list.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="trip-card-totals"></div>
+    `;
+    card.querySelector(".trip-card-name").textContent = c.name;
+    const totalsEl = card.querySelector(".trip-card-totals");
+    if (codes.length === 0) {
+      const chip = document.createElement("span");
+      chip.className = "currency-chip";
+      chip.textContent = "No expenses yet";
+      totalsEl.appendChild(chip);
+    } else {
+      codes.forEach((code) => {
+        const chip = document.createElement("span");
+        chip.className = "currency-chip";
+        chip.textContent = `${formatAmount(totals[code])} ${code}`;
+        totalsEl.appendChild(chip);
+      });
+    }
+    card.addEventListener("click", () => {
+      state.activeTripId = c.id;
+      saveState();
+      render();
+    });
+    wrap.appendChild(card);
+  });
+
+  const addCard = document.createElement("button");
+  addCard.type = "button";
+  addCard.className = "trip-card trip-card-add";
+  addCard.textContent = "+ New trip";
+  addCard.addEventListener("click", () => {
+    renderTripSheet();
+    openSheet(tripSheet);
+  });
+  wrap.appendChild(addCard);
+}
+
+/* ---------------------------- category chips ---------------------------- */
 
 function renderCategoryChips() {
   const wrap = document.getElementById("categoryChips");
@@ -213,24 +306,31 @@ function renderCategoryChips() {
   });
 }
 
-function renderList() {
-  const wrap = document.getElementById("listWrap");
-  const scoped = getScopedExpenses();
-  wrap.innerHTML = "";
+/* ---------------------------- expense list (swipeable rows) ---------------------------- */
 
-  if (scoped.length === 0) {
-    wrap.innerHTML = `
-      <div class="empty-state">
-        <div class="glyph">🧭</div>
-        <p>${state.expenses.length === 0
-          ? "No expenses yet. Tap the + button to log your first one."
-          : "Nothing matches this filter. Try clearing the search or category."}</p>
-      </div>`;
+const SWIPE_OPEN_X = -84;
+let openSwipeRow = null;
+
+function closeSwipeRow(rowEl) {
+  if (!rowEl) return;
+  const inner = rowEl.querySelector(".expense-row-inner");
+  inner.style.transform = "translateX(0)";
+  rowEl._openX = 0;
+  if (openSwipeRow === rowEl) openSwipeRow = null;
+}
+
+function renderExpenseRows(list, { showTrip, emptyMessage }) {
+  const wrap = document.getElementById("listWrap");
+  wrap.innerHTML = "";
+  openSwipeRow = null;
+
+  if (list.length === 0) {
+    wrap.innerHTML = `<div class="empty-state"><div class="glyph">🧭</div><p>${emptyMessage}</p></div>`;
     return;
   }
 
   let lastDay = null;
-  scoped.forEach((e) => {
+  list.forEach((e) => {
     if (e.date !== lastDay) {
       lastDay = e.date;
       const h = document.createElement("div");
@@ -238,30 +338,101 @@ function renderList() {
       h.textContent = dayLabel(e.date);
       wrap.appendChild(h);
     }
-    const cat = categoryInfo(e.category);
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "expense-row";
-    row.onclick = () => openExpenseSheet(e);
 
+    const cat = categoryInfo(e.category);
     const trip = e.tripId ? tripById(e.tripId) : null;
     const subParts = [];
-    if (state.activeTripId === "all" && trip) subParts.push(trip.name);
+    if (showTrip) subParts.push(trip ? trip.name : "No trip");
     if (e.notes) subParts.push(e.notes);
     const sub = subParts.length ? subParts.join(" · ") : cat.key;
 
-    row.innerHTML = `
-      <div class="expense-icon">${cat.emoji}</div>
-      <div class="expense-main">
-        <div class="expense-title"></div>
-        <div class="expense-sub"></div>
+    const item = document.createElement("div");
+    item.className = "expense-item";
+    item.innerHTML = `
+      <div class="swipe-delete-bg">
+        <button type="button" class="swipe-delete-btn"><span class="g">🗑️</span>Delete</button>
       </div>
-      <div class="expense-amount">${formatAmount(e.amount)}<span class="cur"></span></div>
+      <div class="expense-row-inner">
+        <div class="expense-icon">${cat.emoji}</div>
+        <div class="expense-main">
+          <div class="expense-title"></div>
+          <div class="expense-sub"></div>
+        </div>
+        <div class="expense-amount">${formatAmount(e.amount)}<span class="cur"></span></div>
+      </div>
     `;
-    row.querySelector(".expense-title").textContent = e.title;
-    row.querySelector(".expense-sub").textContent = sub;
-    row.querySelector(".cur").textContent = e.currency;
-    wrap.appendChild(row);
+    item.querySelector(".expense-title").textContent = e.title;
+    item.querySelector(".expense-sub").textContent = sub;
+    item.querySelector(".cur").textContent = e.currency;
+
+    attachSwipeHandlers(item, e.id);
+    wrap.appendChild(item);
+  });
+}
+
+function attachSwipeHandlers(item, expenseId) {
+  const inner = item.querySelector(".expense-row-inner");
+  const deleteBtn = item.querySelector(".swipe-delete-btn");
+  let startX = 0;
+  let baseX = 0;
+  let dragging = false;
+  let moved = false;
+  item._openX = 0;
+
+  function setX(x) {
+    const clamped = Math.min(0, Math.max(SWIPE_OPEN_X, x));
+    inner.style.transform = `translateX(${clamped}px)`;
+    item._openX = clamped;
+    return clamped;
+  }
+
+  item.addEventListener("touchstart", (ev) => {
+    if (openSwipeRow && openSwipeRow !== item) closeSwipeRow(openSwipeRow);
+    startX = ev.touches[0].clientX;
+    baseX = item._openX || 0;
+    dragging = true;
+    moved = false;
+    inner.style.transition = "none";
+  }, { passive: true });
+
+  item.addEventListener("touchmove", (ev) => {
+    if (!dragging) return;
+    const dx = ev.touches[0].clientX - startX;
+    if (Math.abs(dx) > 6) moved = true;
+    setX(baseX + dx);
+  }, { passive: true });
+
+  item.addEventListener("touchend", () => {
+    dragging = false;
+    inner.style.transition = "";
+    if (item._openX < SWIPE_OPEN_X / 2) {
+      setX(SWIPE_OPEN_X);
+      openSwipeRow = item;
+    } else {
+      setX(0);
+      if (openSwipeRow === item) openSwipeRow = null;
+    }
+  });
+
+  inner.addEventListener("click", () => {
+    if (moved) return;
+    if (item._openX < 0) {
+      item._openX = setX(0);
+      if (openSwipeRow === item) openSwipeRow = null;
+      return;
+    }
+    const expense = state.expenses.find((x) => x.id === expenseId);
+    if (expense) openExpenseSheet(expense);
+  });
+
+  deleteBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    openConfirm("Delete this expense?", "This can't be undone.", () => {
+      state.expenses = state.expenses.filter((x) => x.id !== expenseId);
+      saveState();
+      render();
+      showToast("Expense deleted");
+    });
   });
 }
 
@@ -290,7 +461,12 @@ function populateTripSelect(select, selectedTripId) {
     opt.textContent = t.name;
     select.appendChild(opt);
   });
-  select.value = selectedTripId || (state.activeTripId !== "all" ? state.activeTripId : "");
+
+  let def = selectedTripId || "";
+  if (!def && state.activeTripId !== "all" && state.activeTripId !== "none") {
+    def = state.activeTripId;
+  }
+  select.value = def;
 }
 
 function renderCategoryGrid(selected) {
@@ -352,7 +528,7 @@ function openExpenseSheet(existing) {
 
 function lastUsedCurrency() {
   const sorted = [...state.expenses].sort((a, b) => b.createdAt - a.createdAt);
-  return sorted.length ? sorted[0].currency : "USD";
+  return sorted.length ? sorted[0].currency : "CAD";
 }
 
 document.getElementById("fabAdd").addEventListener("click", () => openExpenseSheet(null));
@@ -417,12 +593,13 @@ function renderTripSheet() {
   const wrap = document.getElementById("tripList");
   wrap.innerHTML = "";
 
+  const allCount = state.expenses.length;
   const allRow = document.createElement("div");
   allRow.className = "trip-row" + (state.activeTripId === "all" ? " selected" : "");
   allRow.innerHTML = `
     <button type="button" class="trip-row-main">
       <span class="name">All trips</span>
-      <span class="count">${state.expenses.length} expense${state.expenses.length === 1 ? "" : "s"}</span>
+      <span class="count">${allCount} expense${allCount === 1 ? "" : "s"}</span>
     </button>`;
   allRow.querySelector(".trip-row-main").addEventListener("click", () => {
     state.activeTripId = "all";
@@ -481,6 +658,24 @@ function renderTripSheet() {
     });
     wrap.appendChild(row);
   });
+
+  const unassignedCount = state.expenses.filter((e) => !e.tripId).length;
+  if (unassignedCount > 0) {
+    const noneRow = document.createElement("div");
+    noneRow.className = "trip-row" + (state.activeTripId === "none" ? " selected" : "");
+    noneRow.innerHTML = `
+      <button type="button" class="trip-row-main">
+        <span class="name">No trip</span>
+        <span class="count">${unassignedCount} expense${unassignedCount === 1 ? "" : "s"}</span>
+      </button>`;
+    noneRow.querySelector(".trip-row-main").addEventListener("click", () => {
+      state.activeTripId = "none";
+      saveState();
+      closeSheets();
+      render();
+    });
+    wrap.appendChild(noneRow);
+  }
 }
 
 document.getElementById("addTripBtn").addEventListener("click", () => {
@@ -520,12 +715,11 @@ document.getElementById("confirmOk").addEventListener("click", () => {
   confirmCallback = null;
 });
 
-/* ---------------------------- search ---------------------------- */
+/* ---------------------------- search (global, always available) ---------------------------- */
 
 document.getElementById("searchInput").addEventListener("input", (ev) => {
   filters.search = ev.target.value;
-  renderSummary();
-  renderList();
+  render();
 });
 
 /* ---------------------------- backup: export / import ---------------------------- */
