@@ -5,10 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
 <title>Waylog — Travel Expenses</title>
 
-<!-- ============ iOS "Add to Home Screen" support ============
-     Safari on iOS doesn't fully read manifest.json for standalone
-     behavior, so these meta tags do the real work on iPhone. The
-     manifest.json is included too, for Android/other browsers. -->
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Waylog" />
@@ -23,7 +19,6 @@
 
 <div id="app">
 
-  <!-- ================= Top bar ================= -->
   <header class="topbar">
     <div class="topbar-row">
       <h1 class="brand">
@@ -36,44 +31,37 @@
     </div>
   </header>
 
-  <!-- ================= Summary (boarding-pass card) ================= -->
-  <section class="summary-wrap">
-    <div class="summary-card">
-      <div class="summary-top">
-        <p class="summary-label" id="summaryLabel">All trips</p>
-        <div class="summary-total">
-          <span class="amount" id="summaryAmount">0.00</span>
-          <span class="code" id="summaryCode">—</span>
-        </div>
-        <p class="summary-meta" id="summaryMeta">0 expenses</p>
-      </div>
-      <div class="summary-perforation"></div>
-      <div class="summary-currencies" id="summaryCurrencies"></div>
+  <section class="scope-bar">
+    <div class="scope-info">
+      <button class="back-btn" id="backToAllBtn" type="button" style="display:none;">
+        <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M6 1L1 6l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        All trips
+      </button>
+      <span class="scope-label" id="scopeLabel">All trips</span>
     </div>
+    <div class="scope-total" id="scopeTotal">—</div>
   </section>
 
-  <!-- ================= Search + category filter ================= -->
-  <section class="toolbar">
-    <input class="search-input" id="searchInput" type="search" placeholder="Search expenses…" />
+  <section class="search-bar">
+    <input class="search-input" id="searchInput" type="search" placeholder="Search all expenses…" />
+  </section>
+
+  <section class="toolbar" id="categoryToolbar">
     <div class="chip-row" id="categoryChips"></div>
   </section>
 
-  <!-- ================= Expense list ================= -->
-  <main class="list-wrap" id="listWrap">
-    <!-- rendered by app.js -->
-  </main>
+  <div class="trip-cards-wrap" id="tripCardsWrap"></div>
 
-  <!-- ================= FAB ================= -->
+  <main class="list-wrap" id="listWrap"></main>
+
   <button class="fab" id="fabAdd" type="button" aria-label="Add expense">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 4v16M4 12h16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
   </button>
 
 </div>
 
-<!-- ================= Overlay (shared by sheets) ================= -->
 <div class="overlay" id="overlay"></div>
 
-<!-- ================= Expense add/edit sheet ================= -->
 <div class="sheet" id="expenseSheet">
   <div class="sheet-handle"></div>
   <div class="sheet-header">
@@ -125,7 +113,6 @@
   </div>
 </div>
 
-<!-- ================= Trip manager sheet ================= -->
 <div class="sheet" id="tripSheet">
   <div class="sheet-handle"></div>
   <div class="sheet-header">
@@ -146,7 +133,6 @@
   </div>
 </div>
 
-<!-- ================= Generic confirm dialog ================= -->
 <div class="confirm-box" id="confirmBox">
   <h3 id="confirmTitle">Are you sure?</h3>
   <p id="confirmText">This can't be undone.</p>
@@ -156,7 +142,6 @@
   </div>
 </div>
 
-<!-- ================= Toast ================= -->
 <div class="toast" id="toast"></div>
 
 <script src="app.js"></script>
