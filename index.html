@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>Waylog — Travel Expenses</title>
+
+<!-- ============ iOS "Add to Home Screen" support ============
+     Safari on iOS doesn't fully read manifest.json for standalone
+     behavior, so these meta tags do the real work on iPhone. The
+     manifest.json is included too, for Android/other browsers. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Waylog" />
+<meta name="theme-color" content="#1C2541" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="manifest" href="manifest.json" />
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ================= Top bar ================= -->
+  <header class="topbar">
+    <div class="topbar-row">
+      <h1 class="brand">
+        <span class="brand-name">Waylog</span>
+      </h1>
+      <button class="trip-pill" id="tripPillBtn" type="button">
+        <span id="tripPillLabel">All trips</span>
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= Summary (boarding-pass card) ================= -->
+  <section class="summary-wrap">
+    <div class="summary-card">
+      <div class="summary-top">
+        <p class="summary-label" id="summaryLabel">All trips</p>
+        <div class="summary-total">
+          <span class="amount" id="summaryAmount">0.00</span>
+          <span class="code" id="summaryCode">—</span>
+        </div>
+        <p class="summary-meta" id="summaryMeta">0 expenses</p>
+      </div>
+      <div class="summary-perforation"></div>
+      <div class="summary-currencies" id="summaryCurrencies"></div>
+    </div>
+  </section>
+
+  <!-- ================= Search + category filter ================= -->
+  <section class="toolbar">
+    <input class="search-input" id="searchInput" type="search" placeholder="Search expenses…" />
+    <div class="chip-row" id="categoryChips"></div>
+  </section>
+
+  <!-- ================= Expense list ================= -->
+  <main class="list-wrap" id="listWrap">
+    <!-- rendered by app.js -->
+  </main>
+
+  <!-- ================= FAB ================= -->
+  <button class="fab" id="fabAdd" type="button" aria-label="Add expense">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 4v16M4 12h16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+  </button>
+
+</div>
+
+<!-- ================= Overlay (shared by sheets) ================= -->
+<div class="overlay" id="overlay"></div>
+
+<!-- ================= Expense add/edit sheet ================= -->
+<div class="sheet" id="expenseSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h2 id="expenseSheetTitle">Add expense</h2>
+    <button class="sheet-close" id="expenseSheetClose" type="button">&times;</button>
+  </div>
+  <div class="sheet-body">
+    <form id="expenseForm">
+      <input type="hidden" id="expenseId" />
+
+      <div class="field">
+        <label for="expenseTitle">Title</label>
+        <input id="expenseTitle" type="text" placeholder="e.g. Taxi from airport" required maxlength="80" />
+      </div>
+
+      <div class="field">
+        <label for="expenseAmount">Amount</label>
+        <div class="amount-row">
+          <input id="expenseAmount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" required />
+          <select id="expenseCurrency"></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Category</label>
+        <div class="category-grid" id="categoryGrid"></div>
+        <input type="hidden" id="expenseCategory" value="Other" />
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="expenseDate">Date</label>
+          <input id="expenseDate" type="date" required />
+        </div>
+        <div class="field">
+          <label for="expenseTrip">Trip</label>
+          <select id="expenseTrip"></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="expenseNotes">Notes <span style="text-transform:none;">(optional)</span></label>
+        <textarea id="expenseNotes" maxlength="300" placeholder="Anything worth remembering…"></textarea>
+      </div>
+
+      <button class="btn btn-primary" type="submit" id="expenseSaveBtn">Save expense</button>
+      <button class="btn btn-danger" type="button" id="expenseDeleteBtn" style="display:none;">Delete expense</button>
+    </form>
+  </div>
+</div>
+
+<!-- ================= Trip manager sheet ================= -->
+<div class="sheet" id="tripSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h2>Trips</h2>
+    <button class="sheet-close" id="tripSheetClose" type="button">&times;</button>
+  </div>
+  <div class="sheet-body">
+    <div id="tripList"></div>
+    <div class="new-trip-row">
+      <input id="newTripName" type="text" placeholder="New trip name, e.g. Japan 2026" maxlength="60" />
+      <button id="addTripBtn" type="button">Add</button>
+    </div>
+    <div class="settings-links">
+      <button id="exportBtn" type="button">Export backup</button>
+      <button id="importBtn" type="button">Import backup</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json" style="display:none;" />
+  </div>
+</div>
+
+<!-- ================= Generic confirm dialog ================= -->
+<div class="confirm-box" id="confirmBox">
+  <h3 id="confirmTitle">Are you sure?</h3>
+  <p id="confirmText">This can't be undone.</p>
+  <div class="confirm-actions">
+    <button class="confirm-cancel" id="confirmCancel" type="button">Cancel</button>
+    <button class="confirm-ok" id="confirmOk" type="button">Delete</button>
+  </div>
+</div>
+
+<!-- ================= Toast ================= -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
